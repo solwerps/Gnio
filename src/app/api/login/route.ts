@@ -24,12 +24,10 @@ async function ensureTenantForUser(user: {
   try {
     const existing = await prisma.tenant.findUnique({ where: { slug: user.username } });
     if (existing) return existing;
-
     const type = user.role === "EMPRESA" ? "COMPANY" : "PERSONAL";
     const displayName = user.role === "EMPRESA"
       ? (user.companyName ?? user.username)
       : (user.name ?? user.username);
-
     return await prisma.tenant.create({
       data: {
         type, slug: user.username, displayName, createdById: user.id,
@@ -48,7 +46,7 @@ async function ensureTenantForUser(user: {
 
 export async function POST(req: Request) {
   try {
-    // 0) ENV requerido para JWT
+    // ENV requerido
     const secretValue = process.env.APP_JWT_SECRET;
     if (!secretValue) {
       console.error("[/api/login] MISSING APP_JWT_SECRET");
@@ -56,7 +54,7 @@ export async function POST(req: Request) {
     }
     const secret = new TextEncoder().encode(secretValue);
 
-    // 1) Body seguro
+    // Body seguro (acepta username o email en "identifier")
     const body = await req.json().catch(() => ({}));
     const { username, email, identifier, password } = body as {
       username?: string; email?: string; identifier?: string; password?: string;
@@ -69,7 +67,7 @@ export async function POST(req: Request) {
     }
     const key = (identifier ?? username ?? email)!.toString().trim();
 
-    // 2) Buscar por username o email
+    // Buscar por username O email
     const user = await prisma.user.findFirst({
       where: { OR: [{ username: key }, { email: key }] },
     });
@@ -79,11 +77,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "USER_HAS_NO_PASSWORD" }, { status: 500 });
     }
 
-    // 3) Validar contraseña
+    // Validar contraseña
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) return NextResponse.json({ ok: false, error: "INVALID_CREDENTIALS" }, { status: 401 });
 
-    // 4) Asegurar tenant (no rompe si tabla falta)
+    // Asegurar tenant (no rompe si tabla falta)
     await ensureTenantForUser({
       id: user.id,
       role: user.role as AllowedRole,
@@ -92,16 +90,15 @@ export async function POST(req: Request) {
       companyName: user.companyName,
     });
 
-    // 5) Token + redirect
+    // Token y redirect
     const token = await new SignJWT({ userId: user.id, role: user.role, username: user.username })
       .setProtectedHeader({ alg: "HS256" })
       .setExpirationTime("1h")
       .sign(secret);
-
     const rolePath = roleToPath(user.role as AllowedRole);
     const redirect = rolePath === "admin" ? "/dashboard/admin" : `/dashboard/${rolePath}/${user.username}`;
 
-    // 6) Respuesta JSON + cookie
+    // Respuesta JSON + cookie
     const res = NextResponse.json({
       ok: true,
       message: "LOGIN_OK",
@@ -118,7 +115,6 @@ export async function POST(req: Request) {
     });
     return res;
   } catch (err: any) {
-    // 🔍 TEMP: devuelve detalles del error para ver el motivo real en prod
     console.error("[/api/login] ERROR:", err);
     return NextResponse.json({
       ok: false,

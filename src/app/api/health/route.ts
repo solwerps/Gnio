@@ -19,11 +19,9 @@ export async function GET() {
     });
   } catch (err: any) {
     console.error("[/api/health] ERROR:", err);
-    return NextResponse.json({
-      ok: false,
-      error: err?.message || String(err),
-      code: err?.code,
-      name: err?.name,
-    }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: err?.message, code: err?.code, name: err?.name },
+      { status: 500 }
+    );
   }
 }
