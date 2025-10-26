@@ -1,37 +1,41 @@
 // src/app/api/login/route.ts
-import { NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
-import bcrypt from 'bcryptjs';
-import { SignJWT } from 'jose';
+import { NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
+import prisma from "@/lib/prisma";
+import { SignJWT } from "jose";
 
-const secret = new TextEncoder().encode(process.env.APP_JWT_SECRET);
-
-type AllowedRole = 'ADMIN' | 'CONTADOR' | 'EMPRESA';
+type AllowedRole = "ADMIN" | "CONTADOR" | "EMPRESA";
 
 function roleToPath(role: AllowedRole) {
   switch (role) {
-    case 'CONTADOR': return 'contador';
-    case 'EMPRESA':  return 'empresa';
-    case 'ADMIN':
-    default:         return 'admin';
+    case "CONTADOR":
+      return "contador";
+    case "EMPRESA":
+      return "empresa";
+    case "ADMIN":
+    default:
+      return "admin";
   }
 }
 
 /**
  * Crea/asegura un tenant con slug = user.username.
- * Si la tabla Tenant no existe aún (no hiciste migrate), NO rompe el login (solo salta).
+ * Si la tabla Tenant no existe, NO rompe el login (lo ignora).
  */
 async function ensureTenantForUser(user: {
-  id: number; role: AllowedRole; username: string; name?: string | null; companyName?: string | null;
+  id: number;
+  role: AllowedRole;
+  username: string;
+  name?: string | null;
+  companyName?: string | null;
 }) {
   try {
     const existing = await prisma.tenant.findUnique({ where: { slug: user.username } });
     if (existing) return existing;
 
-    const type = user.role === 'EMPRESA' ? 'COMPANY' : 'PERSONAL';
-    const displayName = user.role === 'EMPRESA'
-      ? (user.companyName ?? user.username)
-      : (user.name ?? user.username);
+    const type = user.role === "EMPRESA" ? "COMPANY" : "PERSONAL";
+    const displayName =
+      user.role === "EMPRESA" ? user.companyName ?? user.username : user.name ?? user.username;
 
     return await prisma.tenant.create({
       data: {
@@ -39,16 +43,13 @@ async function ensureTenantForUser(user: {
         slug: user.username,
         displayName,
         createdById: user.id,
-        memberships: {
-          create: { userId: user.id, role: 'OWNER' },
-        },
+        memberships: { create: { userId: user.id, role: "OWNER" } },
       },
     });
   } catch (e: any) {
-    // P2021 = table/view not found (depende de versión). Si no existe Tenant aún, ignoramos temporalmente.
-    const code = e?.code || e?.name || '';
-    if (code === 'P2021' || /table .*tenant.* does not exist/i.test(String(e?.message))) {
-      console.warn('[ensureTenantForUser] Tabla Tenant no existe todavía. Aplica la migración.');
+    const code = e?.code || e?.name || "";
+    if (code === "P2021" || /tenant.*does not exist/i.test(String(e?.message))) {
+      console.warn("[ensureTenantForUser] Tabla Tenant no existe todavía (ignorado).");
       return null;
     }
     throw e;
@@ -56,55 +57,96 @@ async function ensureTenantForUser(user: {
 }
 
 export async function POST(req: Request) {
-  const { username, password } = await req.json();
+  try {
+    // 0) Body seguro
+    const body = await req.json().catch(() => ({}));
+    const {
+      username,
+      email,
+      identifier, // permite enviar un solo campo en el front
+      password,
+    } = body as { username?: string; email?: string; identifier?: string; password?: string };
 
-  // 1) Buscar usuario
-  const user = await prisma.user.findUnique({ where: { username } });
-  if (!user) {
-    return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 401 });
+    if (!password || (!username && !email && !identifier)) {
+      return NextResponse.json(
+        { ok: false, error: "EMAIL_OR_USERNAME_AND_PASSWORD_REQUIRED" },
+        { status: 400 }
+      );
+    }
+
+    const key = (identifier ?? username ?? email)!.toString().trim();
+
+    // 1) Buscar usuario por username O email
+    const user = await prisma.user.findFirst({
+      where: { OR: [{ username: key }, { email: key }] },
+    });
+
+    if (!user) {
+      return NextResponse.json({ ok: false, error: "USER_NOT_FOUND" }, { status: 401 });
+    }
+
+    if (!user.passwordHash) {
+      return NextResponse.json({ ok: false, error: "USER_HAS_NO_PASSWORD" }, { status: 500 });
+    }
+
+    // 2) Validar contraseña
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
+      return NextResponse.json({ ok: false, error: "INVALID_CREDENTIALS" }, { status: 401 });
+    }
+
+    // 3) Asegurar tenant (no rompe si no existe la tabla aún)
+    await ensureTenantForUser({
+      id: user.id,
+      role: user.role as AllowedRole,
+      username: user.username,
+      name: user.name,
+      companyName: user.companyName,
+    });
+
+    // 4) Generar token
+    const secretValue = process.env.APP_JWT_SECRET;
+    if (!secretValue) {
+      console.error("[/api/login] Falta APP_JWT_SECRET en env");
+      return NextResponse.json({ ok: false, error: "MISSING_APP_JWT_SECRET" }, { status: 500 });
+    }
+    const secret = new TextEncoder().encode(secretValue);
+
+    const token = await new SignJWT({
+      userId: user.id,
+      role: user.role,
+      username: user.username,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setExpirationTime("1h")
+      .sign(secret);
+
+    // 5) A dónde redirigir
+    const rolePath = roleToPath(user.role as AllowedRole);
+    const redirect =
+      rolePath === "admin" ? "/dashboard/admin" : `/dashboard/${rolePath}/${user.username}`;
+
+    // 6) Responder SIEMPRE JSON + cookie
+    const res = NextResponse.json({
+      ok: true,
+      message: "LOGIN_OK",
+      role: user.role,
+      redirect,
+      user: { id: user.id, username: user.username, email: user.email },
+    });
+
+    res.cookies.set("token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      sameSite: "lax",
+      maxAge: 60 * 60, // 1h
+    });
+
+    return res;
+  } catch (err) {
+    console.error("[/api/login] ERROR:", err);
+    // <- evita “Unexpected end of JSON” en el cliente
+    return NextResponse.json({ ok: false, error: "INTERNAL_ERROR" }, { status: 500 });
   }
-
-  // 2) Validar contraseña
-  const valid = await bcrypt.compare(password, user.passwordHash);
-  if (!valid) {
-    return NextResponse.json({ error: 'Contraseña incorrecta' }, { status: 401 });
-  }
-
-  // 3) Asegurar tenant (si ya migraste, lo creará/encontrará; si no, no rompe)
-  await ensureTenantForUser({
-    id: user.id,
-    role: user.role as AllowedRole,
-    username: user.username,
-    name: user.name,
-    companyName: user.companyName,
-  });
-
-  // 4) Token (ajusta claims/exp según tu política)
-  const token = await new SignJWT({ userId: user.id, role: user.role, username: user.username })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setExpirationTime('1h')
-    .sign(secret);
-
-  // 5) Redirect target
-  const rolePath = roleToPath(user.role as AllowedRole);
-  const redirect = rolePath === 'admin'
-    ? '/dashboard/admin'
-    : `/dashboard/${rolePath}/${user.username}`;
-
-  // 6) Respuesta + cookie
-  const res = NextResponse.json({
-    message: 'Login exitoso',
-    role: user.role,
-    redirect, // <- úsalo en el cliente
-    user: { id: user.id, username: user.username },
-  });
-
-  res.cookies.set('token', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-    sameSite: 'lax',
-  });
-
-  return res;
 }
