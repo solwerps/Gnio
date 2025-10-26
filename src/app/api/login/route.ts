@@ -1,4 +1,8 @@
 // src/app/api/login/route.ts
+// src/app/api/login/route.ts
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
@@ -18,10 +22,6 @@ function roleToPath(role: AllowedRole) {
   }
 }
 
-/**
- * Crea/asegura un tenant con slug = user.username.
- * Si la tabla Tenant no existe, NO rompe el login (lo ignora).
- */
 async function ensureTenantForUser(user: {
   id: number;
   role: AllowedRole;
@@ -58,44 +58,46 @@ async function ensureTenantForUser(user: {
 
 export async function POST(req: Request) {
   try {
-    // 0) Body seguro
-    const body = await req.json().catch(() => ({}));
-    const {
-      username,
-      email,
-      identifier, // permite enviar un solo campo en el front
-      password,
-    } = body as { username?: string; email?: string; identifier?: string; password?: string };
+    // 0) ENV requerido
+    const secretValue = process.env.APP_JWT_SECRET;
+    if (!secretValue) {
+      console.error("[/api/login] MISSING APP_JWT_SECRET");
+      return NextResponse.json({ ok: false, error: "MISSING_APP_JWT_SECRET" }, { status: 500 });
+    }
+    const secret = new TextEncoder().encode(secretValue);
 
+    // 1) Body seguro (acepta username o email en "identifier")
+    const body = await req.json().catch(() => ({}));
+    const { username, email, identifier, password } = body as {
+      username?: string;
+      email?: string;
+      identifier?: string;
+      password?: string;
+    };
     if (!password || (!username && !email && !identifier)) {
       return NextResponse.json(
         { ok: false, error: "EMAIL_OR_USERNAME_AND_PASSWORD_REQUIRED" },
         { status: 400 }
       );
     }
-
     const key = (identifier ?? username ?? email)!.toString().trim();
 
-    // 1) Buscar usuario por username O email
+    // 2) Busca por username O email
     const user = await prisma.user.findFirst({
       where: { OR: [{ username: key }, { email: key }] },
     });
-
-    if (!user) {
-      return NextResponse.json({ ok: false, error: "USER_NOT_FOUND" }, { status: 401 });
-    }
+    if (!user) return NextResponse.json({ ok: false, error: "USER_NOT_FOUND" }, { status: 401 });
 
     if (!user.passwordHash) {
+      console.error("[/api/login] USER_HAS_NO_PASSWORD:", user.id);
       return NextResponse.json({ ok: false, error: "USER_HAS_NO_PASSWORD" }, { status: 500 });
     }
 
-    // 2) Validar contraseña
+    // 3) Verifica contraseña
     const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) {
-      return NextResponse.json({ ok: false, error: "INVALID_CREDENTIALS" }, { status: 401 });
-    }
+    if (!valid) return NextResponse.json({ ok: false, error: "INVALID_CREDENTIALS" }, { status: 401 });
 
-    // 3) Asegurar tenant (no rompe si no existe la tabla aún)
+    // 4) Asegura tenant (no rompe si no existe la tabla)
     await ensureTenantForUser({
       id: user.id,
       role: user.role as AllowedRole,
@@ -104,14 +106,7 @@ export async function POST(req: Request) {
       companyName: user.companyName,
     });
 
-    // 4) Generar token
-    const secretValue = process.env.APP_JWT_SECRET;
-    if (!secretValue) {
-      console.error("[/api/login] Falta APP_JWT_SECRET en env");
-      return NextResponse.json({ ok: false, error: "MISSING_APP_JWT_SECRET" }, { status: 500 });
-    }
-    const secret = new TextEncoder().encode(secretValue);
-
+    // 5) Token y redirect
     const token = await new SignJWT({
       userId: user.id,
       role: user.role,
@@ -121,12 +116,11 @@ export async function POST(req: Request) {
       .setExpirationTime("1h")
       .sign(secret);
 
-    // 5) A dónde redirigir
     const rolePath = roleToPath(user.role as AllowedRole);
     const redirect =
       rolePath === "admin" ? "/dashboard/admin" : `/dashboard/${rolePath}/${user.username}`;
 
-    // 6) Responder SIEMPRE JSON + cookie
+    // 6) Respuesta JSON + cookie (evita “Unexpected end of JSON”)
     const res = NextResponse.json({
       ok: true,
       message: "LOGIN_OK",
@@ -134,19 +128,16 @@ export async function POST(req: Request) {
       redirect,
       user: { id: user.id, username: user.username, email: user.email },
     });
-
     res.cookies.set("token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       path: "/",
       sameSite: "lax",
-      maxAge: 60 * 60, // 1h
+      maxAge: 60 * 60,
     });
-
     return res;
   } catch (err) {
     console.error("[/api/login] ERROR:", err);
-    // <- evita “Unexpected end of JSON” en el cliente
     return NextResponse.json({ ok: false, error: "INTERNAL_ERROR" }, { status: 500 });
   }
 }
