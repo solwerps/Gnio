@@ -41,8 +41,10 @@ function buildLlaveGlobal(d: any) {
   return `${d.serie || ""}-${d.numero_dte || ""}-${d.numero_autorizacion || ""}`.toUpperCase();
 }
 
-// mapeo para create
+// ---------- mapeos ----------
 function mapToPrismaCreate(d: any) {
+  const empresaId = Number(d.empresa_id);
+
   return {
     identificadorUnico: buildIdentificadorUnico(d),
 
@@ -62,11 +64,12 @@ function mapToPrismaCreate(d: any) {
     moneda: d.moneda ?? "GTQ",
 
     montoTotal: new Prisma.Decimal(asNum(d.monto_total)),
-    montoBien: new Prisma.Decimal(asNum(d.monto_bien)),
-    montoServicio: new Prisma.Decimal(asNum(d.monto_servicio)),
+    // si viene como servicio llenamos servicio, si no, bien
+    montoBien: new Prisma.Decimal(asNum(d.monto_bien ?? (d.tipo === "servicio" ? 0 : d.monto_total))),
+    montoServicio: new Prisma.Decimal(asNum(d.monto_servicio ?? (d.tipo === "servicio" ? d.monto_total : 0))),
 
     facturaEstado: d.factura_estado ?? null,
-    marcaAnulado: asBool(d.marca_anulado),
+    marcaAnulado: asBool(d.marca_anulado) ?? false,
     fechaAnulacion: asDate(d.fecha_anulacion),
 
     iva: d.iva == null ? null : new Prisma.Decimal(asNum(d.iva)),
@@ -84,22 +87,27 @@ function mapToPrismaCreate(d: any) {
 
     // enum en tu schema
     tipoOperacion: (d.operacion_tipo as any) ?? "venta",
-    cuentaDebe: d.cuenta_debe ?? null,
-    cuentaHaber: d.cuenta_haber ?? null,
+    cuentaDebe: d.cuenta_debe ? String(d.cuenta_debe) : null,
+    cuentaHaber: d.cuenta_haber ? String(d.cuenta_haber) : null,
     tipo: d.tipo ?? "bien",
 
-    empresaId: Number(d.empresa_id),
+    // 🔴 aquí forzamos la relación requerida
+    empresa: {
+      connect: { id: empresaId },
+    },
+    // si quisieras también dejar el FK explícito:
+    // empresaId: empresaId,
+
     fechaTrabajo: asDate(d.date) || asDate(d.fecha_trabajo) || new Date(),
   };
 }
 
-// mapeo para update
 function mapToPrismaUpdate(d: any) {
   return {
     fechaEmision: asDate(d.fecha_emision) ?? undefined,
     montoTotal: new Prisma.Decimal(asNum(d.monto_total)),
-    montoBien: new Prisma.Decimal(asNum(d.monto_bien)),
-    montoServicio: new Prisma.Decimal(asNum(d.monto_servicio)),
+    montoBien: new Prisma.Decimal(asNum(d.monto_bien ?? 0)),
+    montoServicio: new Prisma.Decimal(asNum(d.monto_servicio ?? 0)),
 
     iva: d.iva == null ? undefined : new Prisma.Decimal(asNum(d.iva)),
     petroleo: d.petroleo == null ? undefined : new Prisma.Decimal(asNum(d.petroleo)),
@@ -181,9 +189,7 @@ export async function POST(req: NextRequest) {
 
     // 4) buscar duplicados ya guardados (mismo serie + numero_dte + numero_autorizacion)
     const whereOR = docsWithContext.map((d: any) => {
-      const and: any[] = [
-        { numeroDte: d.numero_dte ?? "" },
-      ];
+      const and: any[] = [{ numeroDte: d.numero_dte ?? "" }];
 
       if (d.serie) and.push({ serie: d.serie });
       else and.push({ serie: null });
@@ -209,7 +215,6 @@ export async function POST(req: NextRequest) {
 
     // 🧠 si hay EXISTENTES → NO guardamos NADA y devolvemos info
     if (existentes.length > 0) {
-      // armamos mensajes bonitos
       const detalles = existentes.map((e) => {
         return {
           serie: e.serie,

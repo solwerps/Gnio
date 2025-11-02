@@ -1,10 +1,10 @@
-// src/app/dashboard/usuario/empresas/[id]/documentos/page.tsx
+// src/app/dashboard/contador/[usuarios]/empresas/[id]/documentos/page.tsx
 "use client";
 
 import React, { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import EmpresaSidebar from "@/components/empresas/EmpresaSidebar";
-import DocumentosTemplate from "@/components/templates/documentos"; // 👈 ESTE
+import DocumentosTemplate from "@/components/templates/documentos";
 
 function monthPretty(ym: string) {
   try {
@@ -19,14 +19,16 @@ function monthPretty(ym: string) {
 }
 
 export default function Page() {
-  const p = useParams() as { usuario?: string; Usuarios?: string; id?: string };
-  const usuario = String(p.usuario ?? p.Usuarios ?? "usuario");
+  // ⚠️ ruta real: /dashboard/contador/[usuarios]/empresas/[id]/documentos
+  const p = useParams() as { usuarios?: string; usuario?: string; id?: string };
+  // a veces lo tenías como [usuario], por eso dejo el fallback
+  const usuario = String(p.usuarios ?? p.usuario ?? "usuario");
   const empresaId = String(p.id ?? "");
 
   const router = useRouter();
 
   const [operacion, setOperacion] = useState<"" | "compra" | "venta">("");
-  const [mes, setMes] = useState<string>(() => {
+  const [mes, setMes] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
@@ -36,16 +38,20 @@ export default function Page() {
     if (!empresaId) return;
     (async () => {
       try {
-        const r = await fetch(`/api/empresas/${empresaId}`, { cache: "no-store" });
+        const r = await fetch(`/api/empresas/${empresaId}`, {
+          cache: "no-store",
+        });
         const j = await r.json();
         const d = j?.data ?? j;
         setEmpresaNombre(d?.nombre || "Empresa");
-      } catch {}
+      } catch {
+        /* ignore */
+      }
     })();
   }, [empresaId]);
 
-  // si tu ruta REAL es /dashboard/usuario/... cambia esto 👇
-  const base = `/dashboard/usuario/${usuario}/empresas/${empresaId}/documentos`;
+  // ✅ base correcta con "contador" y con "[usuarios]" en minúscula
+  const base = `/dashboard/contador/${usuario}/empresas/${empresaId}/documentos`;
 
   const onDescargar = async () => {
     const q = new URLSearchParams({ empresaId, mes, operacion, format: "csv" });
@@ -62,10 +68,12 @@ export default function Page() {
 
   return (
     <div className="min-h-screen w-full bg-neutral-50 text-neutral-900">
+      {/* sidebar empresa */}
       <div className="fixed left-0 top-0 hidden h-screen w-[260px] overflow-y-auto md:block">
         <EmpresaSidebar empresaId={empresaId} forceUsuario={usuario} />
       </div>
 
+      {/* contenido */}
       <main className="md:ml-[260px] px-4 sm:px-6 py-6">
         <div className="mx-auto w-full max-w-[1120px]">
           <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight uppercase">
@@ -81,7 +89,9 @@ export default function Page() {
               <div className="relative">
                 <select
                   value={operacion}
-                  onChange={(e) => setOperacion(e.target.value as "" | "compra" | "venta")}
+                  onChange={(e) =>
+                    setOperacion(e.target.value as "" | "compra" | "venta")
+                  }
                   className="h-11 w-[280px] rounded-xl border border-neutral-300 bg-white px-3 pr-9 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
                 >
                   <option value="">Seleccionar</option>
@@ -99,14 +109,18 @@ export default function Page() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-semibold text-neutral-700">Selecciona la fecha:</label>
+              <label className="text-sm font-semibold text-neutral-700">
+                Selecciona la fecha:
+              </label>
               <input
                 type="month"
                 value={mes}
                 onChange={(e) => setMes(e.target.value)}
                 className="h-11 w-[220px] rounded-xl border border-neutral-300 bg-white px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
-              <span className="text-xs text-neutral-500 -mt-1">{monthPretty(mes)}</span>
+              <span className="text-xs text-neutral-500 -mt-1">
+                {monthPretty(mes)}
+              </span>
             </div>
           </div>
 
@@ -138,10 +152,14 @@ export default function Page() {
             </button>
           </div>
 
-          {/* cuadro */}
+          {/* tabla */}
           <section className="mt-6">
             <div className="mx-auto w-full max-w-[1120px]">
-              <DocumentosTemplate empresaId={empresaId} operacion={operacion} mes={mes} />
+              <DocumentosTemplate
+                empresaId={empresaId}
+                operacion={operacion}
+                mes={mes}
+              />
             </div>
           </section>
         </div>
