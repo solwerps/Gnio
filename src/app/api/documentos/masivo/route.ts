@@ -95,8 +95,6 @@ function mapToPrismaCreate(d: any) {
     empresa: {
       connect: { id: empresaId },
     },
-    // si quisieras también dejar el FK explícito:
-    // empresaId: empresaId,
 
     fechaTrabajo: asDate(d.date) || asDate(d.fecha_trabajo) || new Date(),
   };
@@ -169,9 +167,14 @@ export async function POST(req: NextRequest) {
       _llaveGlobal: buildLlaveGlobal(d),
     }));
 
-    // 3) validar NIT iguales
-    const nitMalos = docsWithContext.filter((d) => {
-      const nitDoc = normNit(d.nit_emisor);
+    // 3) validar NIT según operación
+    // venta  -> comparar contra nit_emisor
+    // compra -> comparar contra id_receptor
+    const nitField = operacion === "compra" ? "id_receptor" : "nit_emisor";
+    const friendlyField = operacion === "compra" ? "ID Receptor" : "NIT Emisor";
+
+    const nitMalos = docsWithContext.filter((d: any) => {
+      const nitDoc = normNit(d[nitField]);
       return !nitDoc || nitDoc !== nitEmpresa;
     });
 
@@ -179,8 +182,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           status: 400,
-          message: `El NIT de estas facturas no coincide con el de la empresa (${empresa.nit}): ${nitMalos
-            .map((d) => `${d.serie || ""}-${d.numero_dte || ""}`)
+          message: `El ${friendlyField} de estas facturas no coincide con el NIT de la empresa (${empresa.nit}): ${nitMalos
+            .map((d: any) => `${d.serie || ""}-${d.numero_dte || ""}`)
             .join(", ")}`,
         },
         { status: 400 }

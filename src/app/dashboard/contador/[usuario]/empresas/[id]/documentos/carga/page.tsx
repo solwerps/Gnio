@@ -24,9 +24,8 @@ export default async function CargaDocumentosPage({
       {/* Contenido desplazado en desktop */}
       <div className="md:ml-[260px] px-4 py-6">
         <div className="mx-auto w-full max-w-[1180px]">
-          <div className="mb-1 text-sm text-neutral-500">
-            VISTA: ➜ Dashboard/contador/[usuario]/empresas/[id]/documentos/carga/page.tsx
-          </div>
+         
+         
           <h1 className="mb-6 text-4xl font-extrabold tracking-tight">
             Documentos / Carga Masiva de Documentos
           </h1>

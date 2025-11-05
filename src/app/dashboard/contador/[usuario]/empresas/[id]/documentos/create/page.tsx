@@ -22,14 +22,14 @@ export default function Page() {
       {/* contenido */}
       <main className="md:ml-[260px] px-4 sm:px-6 py-6">
         <div className="mx-auto w-full max-w-[1120px]">
-          <button
-            onClick={() =>
-              router.push(`/dashboard/contador/${usuario}/empresas/${empresaId}/documentos`)
-            }
-            className="mb-6 inline-flex items-center gap-2 text-sm text-neutral-600 hover:text-neutral-900"
-          >
-            ← Regresar
-          </button>
+         <button
+              onClick={() =>
+                router.push(`/dashboard/contador/${usuario}/empresas/${empresaId}/documentos`)
+              }
+              className="rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-600"
+            >
+              ← Regresar
+            </button>
 
           <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
             Facturas / Agregar Factura

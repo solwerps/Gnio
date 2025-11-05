@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams, usePathname } from "next/navigation";
 import UploadExcel from "@/components/Upload/UploadFacturasExcel";
 import UploadXML from "@/components/Upload/UploadFacturasXML";
 
@@ -142,6 +142,13 @@ const CODIGOS_PREFERIDOS = {
   caja: "110101",
 };
 
+// --- Helpers para resolver slug de usuario/empresa desde prop, params o URL ---
+const safeStr = (v: any) => (v == null ? "" : String(v));
+function extractUsuarioFromPathname(pathname: string): string {
+  const m = pathname.match(/\/dashboard\/contador\/([^/]+)\/empresas\//);
+  return m?.[1] || "";
+}
+
 export default function UploadDocumentos({
   empresaId,
   usuario,
@@ -150,6 +157,30 @@ export default function UploadDocumentos({
   usuario: string;
 }) {
   const router = useRouter();
+  const params = useParams() as { usuarios?: string; usuario?: string; id?: string };
+  const pathname = usePathname();
+
+  // Resuelve usuario y empresaId de forma robusta
+  const usuarioSlug = useMemo(() => {
+    const fromProp = safeStr(usuario).trim();
+    if (fromProp) return fromProp;
+    const fromParams = safeStr(params?.usuarios ?? params?.usuario).trim();
+    if (fromParams) return fromParams;
+    const fromPath = extractUsuarioFromPathname(safeStr(pathname));
+    return fromPath;
+  }, [usuario, params?.usuarios, params?.usuario, pathname]);
+
+  const empresaIdStr = useMemo(() => {
+    const fromProp = safeStr(empresaId).trim();
+    if (fromProp) return fromProp;
+    const fromParams = safeStr(params?.id).trim();
+    return fromParams;
+  }, [empresaId, params?.id]);
+
+  const baseDocsPath =
+    usuarioSlug && empresaIdStr
+      ? `/dashboard/contador/${usuarioSlug}/empresas/${empresaIdStr}/documentos`
+      : `/dashboard/contador`;
 
   const [operacion, setOperacion] = useState<Operacion>("");
   const [mes, setMes] = useState<string>(() => {
@@ -227,11 +258,11 @@ export default function UploadDocumentos({
 
   // cargar nomenclatura
   useEffect(() => {
-    if (!empresaId || step !== "preview") return;
+    if (!empresaIdStr || step !== "preview") return;
 
     (async () => {
       try {
-        const r1 = await fetch(`/api/empresas/${empresaId}/nomenclatura`, {
+        const r1 = await fetch(`/api/empresas/${empresaIdStr}/nomenclatura`, {
           cache: "no-store",
           credentials: "include",
         });
@@ -269,7 +300,7 @@ export default function UploadDocumentos({
         setCuentasOptions([]);
       }
     })();
-  }, [empresaId, step]);
+  }, [empresaIdStr, step]);
 
   // autocompletar
   useEffect(() => {
@@ -380,7 +411,7 @@ export default function UploadDocumentos({
       const date = `${mes}-01`;
 
       const payload = {
-        empresa_id: Number(empresaId),
+        empresa_id: Number(empresaIdStr),
         operacion_tipo: operacion === "" ? undefined : (operacion as "venta" | "compra"),
         date,
         documentos: rows.map((d) => ({
@@ -412,7 +443,6 @@ export default function UploadDocumentos({
 
       // 🆕 caso: duplicados o NIT no coincide (backend manda 409 ó 400)
       if (r.status === 409) {
-        // vienen en j.duplicadas del backend
         const dups: any[] = Array.isArray(j?.duplicadas) ? j.duplicadas : [];
         let msg = j?.message || "Estas facturas ya habían sido cargadas.";
         if (dups.length > 0) {
@@ -430,7 +460,6 @@ export default function UploadDocumentos({
         }
         setSaveMsg(msg);
         setLastResult({ ok: false, message: msg });
-        // no abrimos modal 2
         return;
       }
 
@@ -682,7 +711,7 @@ export default function UploadDocumentos({
 
           {saveMsg && (
             <div
-              className={`mx-auto mt-3 w-full max-w-[1120px] rounded-xl border px-4 py-3 text-sm ${
+              className={`mx-auto mt-3 w/full max-w-[1120px] rounded-xl border px-4 py-3 text-sm ${
                 saveMsg.toLowerCase().includes("error") ||
                 saveMsg.toLowerCase().includes("no coincide") ||
                 saveMsg.toLowerCase().includes("ya fueron cargadas") ||
@@ -725,7 +754,7 @@ export default function UploadDocumentos({
                 </div>
                 <div>
                   <span className="font-semibold">Empresa:</span>{" "}
-                  <span className="text-[#1E64F0]">{empresaId}</span>
+                  <span className="text-[#1E64F0]">{empresaIdStr || "-"}</span>
                 </div>
                 <div>
                   <span className="font-semibold">Fecha:</span>{" "}
@@ -775,10 +804,9 @@ export default function UploadDocumentos({
                 <>
                   <button
                     onClick={() => {
+                      // si tenemos slug e id, vamos al listado; si no, caemos a /dashboard/contador
                       setShowAfterSave(false);
-                      router.push(
-                        `/dashboard/contador/${usuario}/empresas/${empresaId}/documentos`
-                      );
+                      router.push(baseDocsPath);
                     }}
                     className="rounded-xl border border-neutral-300 bg-white px-5 py-2.5 font-medium hover:bg-neutral-50"
                   >

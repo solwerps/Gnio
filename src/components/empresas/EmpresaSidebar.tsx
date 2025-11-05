@@ -297,7 +297,7 @@ export default function EmpresaSidebar({
 
       <div className="mt-auto">
         <button
-          onClick={() => goPlain("/app/login")}
+          onClick={() => goPlain("/login")}
           className="w-full text-left px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 transition"
         >
           Cerrar sesión
