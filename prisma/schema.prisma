@@ -1,19 +1,20 @@
 // prisma/schema.prisma
-
+// ================================
+// PRISMA: Generador y datasource
+// ================================
 datasource db {
   provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "rhel-openssl-3.0.x", "debian-openssl-3.0.x"]
-
 }
 
-/* =========================
- * Enums (globales)
- * ========================= */
+// =========================
+// Enums (globales)
+// =========================
 
 enum Role {
   ADMIN
@@ -74,9 +75,15 @@ enum RazonSocial {
   Juridico
 }
 
-/* =========================
- * Usuarios / Tenancy
- * ========================= */
+// Contabilidad (Nuevo Enum)
+enum DocumentoOperacion {
+  compra
+  venta
+}
+
+// =========================
+// Usuarios / Tenancy
+// =========================
 
 model User {
   id              Int       @id @default(autoincrement())
@@ -135,9 +142,9 @@ model Membership {
   @@id([userId, tenantId])
 }
 
-/* =========================
- * Contabilidad
- * ========================= */
+// =========================
+// Contabilidad
+// =========================
 
 model Nomenclatura {
   id          Int      @id @default(autoincrement())
@@ -156,7 +163,6 @@ model Nomenclatura {
 
   cuentas NomenclaturaCuenta[]
 
-  // 🔙 Back-relation hacia Afiliaciones (nombrada)
   empresasAfiliadas Afiliaciones[] @relation("Afiliaciones_Nomenclatura")
 
   @@unique([tenantId, localId])
@@ -189,10 +195,244 @@ model NomenclaturaCuenta {
 
   nomenclatura Nomenclatura @relation(fields: [nomenclaturaId], references: [id])
 
-  // 🔙 Back-relation con cuentas bancarias
   cuentasBancarias CuentaBancaria[]
 
   @@index([nomenclaturaId, orden])
+}
+
+model Cuenta {
+  uuid        String  @id @db.Char(36)
+  cuenta      String
+  descripcion String?
+
+  partidas Partida[]
+}
+
+model TipoPoliza {
+  id       Int               @id @default(autoincrement())
+  nombre   String
+  estado   Int               @default(1)
+  asientos AsientoContable[]
+}
+
+model AsientoContable {
+  id           Int      @id @default(autoincrement())
+  correlativo  Int
+  tipoPolizaId Int
+  descripcion  String?
+  referencia   String?
+  fecha        DateTime @db.Date
+  estado       Int      @default(1)
+  empresaId    Int
+
+  empresa    Empresa    @relation(fields: [empresaId], references: [id])
+  tipoPoliza TipoPoliza @relation(fields: [tipoPolizaId], references: [id])
+  partidas   Partida[]
+
+  @@index([empresaId])
+  @@index([fecha])
+  @@map("asientos_contables")
+}
+
+model Partida {
+  uuid              String  @id @db.Char(36)
+  montoDebe         Decimal @db.Decimal(20, 2)
+  montoHaber        Decimal @db.Decimal(20, 2)
+  referencia        String?
+  cuentaId          String
+  empresaId         Int?
+  asientoContableId Int
+
+  empresa Empresa?        @relation(fields: [empresaId], references: [id])
+  cuenta  Cuenta          @relation(fields: [cuentaId], references: [uuid])
+  asiento AsientoContable @relation(fields: [asientoContableId], references: [id])
+
+  @@index([asientoContableId])
+  @@index([referencia])
+  @@map("partidas")
+}
+
+// 🔴 Modelo Documento actualizado
+model Documento {
+  uuid                  String             @id @default(uuid()) @db.Char(36)
+  identificadorUnico    String             @unique
+  fechaEmision          DateTime           @db.Date
+  numeroAutorizacion    String?
+  tipoDte               String
+  serie                 String?
+  numeroDte             String
+  nitEmisor             String?
+  nombreEmisor          String?
+  codigoEstablecimiento String?
+  nombreEstablecimiento String?
+  idReceptor            String?
+  nombreReceptor        String?
+  nitCertificador       String?
+  nombreCertificador    String?
+  moneda                String
+  montoTotal            Decimal            @db.Decimal(20, 2)
+  montoBien             Decimal            @db.Decimal(20, 2)
+  montoServicio         Decimal            @db.Decimal(20, 2)
+  facturaEstado         String?
+  marcaAnulado          Boolean            @default(false)
+  fechaAnulacion        DateTime?          @db.Date
+  iva                   Decimal?           @db.Decimal(20, 2)
+  petroleo              Decimal?           @db.Decimal(20, 2)
+  turismoHospedaje      Decimal?           @db.Decimal(20, 2)
+  turismoPasajes        Decimal?           @db.Decimal(20, 2)
+  timbrePrensa          Decimal?           @db.Decimal(20, 2)
+  bomberos              Decimal?           @db.Decimal(20, 2)
+  tasaMunicipal         Decimal?           @db.Decimal(20, 2)
+  bebidasAlcoholicas    Decimal?           @db.Decimal(20, 2)
+  tabaco                Decimal?           @db.Decimal(20, 2)
+  cemento               Decimal?           @db.Decimal(20, 2)
+  bebidasNoAlcoholicas  Decimal?           @db.Decimal(20, 2)
+  tarifaPortuaria       Decimal?           @db.Decimal(20, 2)
+  tipoOperacion         DocumentoOperacion @default(compra)
+  cuentaDebe            String?
+  cuentaDebe2           String?
+  cuentaHaber           String?
+  tipo                  String             @default("bien")
+  empresaId             Int
+  fechaTrabajo          DateTime           @db.Date
+  estado                Int                @default(1)
+  comentario            String?
+
+  empresa Empresa @relation(fields: [empresaId], references: [id])
+
+  @@index([empresaId])
+  @@index([fechaTrabajo])
+  @@index([numeroDte])
+  @@map("documentos")
+}
+
+// =========================
+// Tareas
+// =========================
+
+model Tarea {
+  id           Int        @id @default(autoincrement())
+  tenantId     Int
+  userId       Int
+  titulo       String
+  estado       TaskEstado @default(PENDIENTE)
+  tipo         String?
+  fecha        DateTime?
+  recordatorio Boolean    @default(false)
+  empresa      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, userId, estado, fecha])
+}
+
+// =========================
+// Empresas
+// =========================
+
+model Empresa {
+  id              Int         @id @default(autoincrement())
+  tenant          String
+  nombre          String
+  nit             String
+  sectorEconomico String
+  razonSocial     RazonSocial
+  avatarUrl       String?
+
+  infoIndividual  Json?
+  infoJuridico    Json?
+  direccionFiscal Json?
+  contacto        Json?
+
+  correlativoContador Int @default(0)
+
+  // Relaciones con Retenciones
+retencionesIva IvaRetencion[]
+retencionesIsr IsrRetencion[]
+
+  afiliaciones   Afiliaciones? @relation(fields: [afiliacionesId], references: [id])
+  afiliacionesId Int?          @unique
+  gestiones      Gestiones?    @relation(fields: [gestionesId], references: [id])
+  gestionesId    Int?          @unique
+
+  cuentasBancarias CuentaBancaria[]
+
+  documentos Documento[]
+  asientos   AsientoContable[]
+  partidas   Partida[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenant, nit], name: "idx_empresa_tenant_nit")
+}
+
+model Afiliaciones {
+  id      Int      @id @default(autoincrement())
+  empresa Empresa?
+
+  regimenIvaId   Int?
+  regimenIsrId   Int?
+  nomenclaturaId Int?
+
+  regimenIva   RegimenIvaFila? @relation("Afiliaciones_RegimenIva", fields: [regimenIvaId], references: [id])
+  regimenIsr   RegimenIsrFila? @relation("Afiliaciones_RegimenIsr", fields: [regimenIsrId], references: [id])
+  nomenclatura Nomenclatura?   @relation("Afiliaciones_Nomenclatura", fields: [nomenclaturaId], references: [id])
+
+  obligaciones Obligacion[]
+
+  @@index([regimenIvaId])
+  @@index([regimenIsrId])
+  @@index([nomenclaturaId])
+}
+
+model Obligacion {
+  id                Int          @id @default(autoincrement())
+  afiliaciones      Afiliaciones @relation(fields: [afiliacionesId], references: [id])
+  afiliacionesId    Int
+  impuesto          String
+  codigoFormulario  String?
+  fechaPresentacion DateTime?
+  nombreObligacion  String?
+}
+
+model Gestiones {
+  id           Int          @id @default(autoincrement())
+  empresa      Empresa?
+  folios       FolioLibro[]
+  correlativos Json?
+}
+
+model FolioLibro {
+  id          Int       @id @default(autoincrement())
+  gestiones   Gestiones @relation(fields: [gestionesId], references: [id])
+  gestionesId Int
+  libro       String
+  disponibles Int       @default(0)
+  usados      Int       @default(0)
+  ultimaFecha DateTime?
+}
+
+model CuentaBancaria {
+  id        Int     @id @default(autoincrement())
+  empresa   Empresa @relation(fields: [empresaId], references: [id])
+  empresaId Int
+
+  numero       String
+  banco        String
+  descripcion  String?
+  moneda       String
+  saldoInicial Decimal @db.Decimal(18, 2)
+
+  cuentaContableId Int?
+  cuentaContable   NomenclaturaCuenta? @relation(fields: [cuentaContableId], references: [id])
+
+  @@index([empresaId])
+  @@index([cuentaContableId])
 }
 
 model RegimenIvaFila {
@@ -234,7 +474,6 @@ model RegimenIvaFila {
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
 
-  // 🔙 Back-relation nombrada
   afiliacionesIVA Afiliaciones[] @relation("Afiliaciones_RegimenIva")
 
   @@index([tenantId])
@@ -278,128 +517,50 @@ model RegimenIsrFila {
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
 
-  // 🔙 Back-relation nombrada
   afiliacionesISR Afiliaciones[] @relation("Afiliaciones_RegimenIsr")
 
   @@index([tenantId])
 }
 
-/* =========================
- * Tareas
- * ========================= */
+// =========================
+// Retenciones  (model names RENOMBRADOS)
+// =========================
 
-model Tarea {
-  id           Int        @id @default(autoincrement())
-  tenantId     Int
-  userId       Int
-  titulo       String
-  estado       TaskEstado @default(PENDIENTE)
-  tipo         String?
-  fecha        DateTime?
-  recordatorio Boolean    @default(false)
-  empresa      String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-  user   User   @relation(fields: [userId], references: [id])
-
-  @@index([tenantId, userId, estado, fecha])
-}
-
-/* =========================
- * Empresas
- * ========================= */
-
-model Empresa {
-  id               Int          @id @default(autoincrement())
-  tenant           String
-  nombre           String
-  nit              String
-  sectorEconomico  String
-  razonSocial      RazonSocial
-  avatarUrl        String?
-
-  infoIndividual   Json?
-  infoJuridico     Json?
-  direccionFiscal  Json?
-  contacto         Json?
-
-  afiliaciones     Afiliaciones? @relation(fields: [afiliacionesId], references: [id])
-  afiliacionesId   Int? @unique
-  gestiones        Gestiones?    @relation(fields: [gestionesId], references: [id])
-  gestionesId      Int? @unique
-
-  cuentasBancarias CuentaBancaria[]
-
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
-
-  @@index([tenant, nit], name: "idx_empresa_tenant_nit")
-}
-
-model Afiliaciones {
-  id             Int           @id @default(autoincrement())
-  empresa        Empresa?
-
-  regimenIvaId   Int?
-  regimenIsrId   Int?
-  nomenclaturaId Int?
-
-  // 👇 Relaciones nombradas + FKs
-  regimenIva     RegimenIvaFila? @relation("Afiliaciones_RegimenIva", fields: [regimenIvaId], references: [id])
-  regimenIsr     RegimenIsrFila? @relation("Afiliaciones_RegimenIsr", fields: [regimenIsrId], references: [id])
-  nomenclatura   Nomenclatura?   @relation("Afiliaciones_Nomenclatura", fields: [nomenclaturaId], references: [id])
-
-  obligaciones   Obligacion[]
-
-  @@index([regimenIvaId])
-  @@index([regimenIsrId])
-  @@index([nomenclaturaId])
-}
-
-model Obligacion {
-  id                 Int           @id @default(autoincrement())
-  afiliaciones       Afiliaciones  @relation(fields: [afiliacionesId], references: [id])
-  afiliacionesId     Int
-  impuesto           String
-  codigoFormulario   String?
-  fechaPresentacion  DateTime?
-  nombreObligacion   String?
-}
-
-model Gestiones {
-  id            Int          @id @default(autoincrement())
-  empresa       Empresa?
-  folios        FolioLibro[]
-  correlativos  Json?
-}
-
-model FolioLibro {
-  id           Int        @id @default(autoincrement())
-  gestiones    Gestiones  @relation(fields: [gestionesId], references: [id])
-  gestionesId  Int
-  libro        String
-  disponibles  Int        @default(0)
-  usados       Int        @default(0)
-  ultimaFecha  DateTime?
-}
-
-model CuentaBancaria {
-  id               Int                 @id @default(autoincrement())
-  empresa          Empresa             @relation(fields: [empresaId], references: [id])
+model IvaRetencion {
+  uuid             String   @id @default(uuid()) @db.Char(36)
   empresaId        Int
+  fechaTrabajo     DateTime @db.Date
+  nitRetenedor     String
+  nombreRetenedor  String
+  estadoConstancia String
+  constancia       String
+  fechaEmision     DateTime @db.Date
+  totalFactura     Decimal  @db.Decimal(20, 2)
+  importeNeto      Decimal  @db.Decimal(20, 2)
+  afectoRetencion  Decimal  @db.Decimal(20, 2)
+  totalRetencion   Decimal  @db.Decimal(20, 2)
 
-  numero           String
-  banco            String
-  descripcion      String?
-  moneda           String
-  saldoInicial     Decimal             @db.Decimal(18, 2)
+  empresa Empresa @relation(fields: [empresaId], references: [id])
 
-  cuentaContableId Int?
-  cuentaContable   NomenclaturaCuenta? @relation(fields: [cuentaContableId], references: [id])
+  @@index([empresaId, fechaTrabajo])
+  @@map("retenciones_iva")      // <- mantiene la MISMA tabla
+}
 
-  @@index([empresaId])
-  @@index([cuentaContableId])
+model IsrRetencion {
+  uuid             String   @id @default(uuid()) @db.Char(36)
+  empresaId        Int
+  fechaTrabajo     DateTime @db.Date
+  nitRetenedor     String
+  nombreRetenedor  String
+  estadoConstancia String
+  constancia       String
+  fechaEmision     DateTime @db.Date
+  totalFactura     Decimal  @db.Decimal(20, 2)
+  rentaImponible   Decimal  @db.Decimal(20, 2)
+  totalRetencion   Decimal  @db.Decimal(20, 2)
+
+  empresa Empresa @relation(fields: [empresaId], references: [id])
+
+  @@index([empresaId, fechaTrabajo])
+  @@map("retenciones_isr")      // <- mantiene la MISMA tabla
 }

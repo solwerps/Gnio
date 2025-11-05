@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireSessionAndTenant } from "../../_utils/nomenclaturaTenant";
 
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -18,8 +17,8 @@ async function getNomByTenantLocalId(tenantId: number, localId: number) {
   return prisma.nomenclatura.findUnique({
     where: { tenantId_localId: { tenantId, localId } }, // <-- clave compuesta
     select: {
-      id: true,            // id global interno (para relaciones)
-      localId: true,       // consecutivo por tenant
+      id: true,
+      localId: true,
       nombre: true,
       descripcion: true,
       versionGNIO: true,
@@ -32,11 +31,11 @@ async function getNomByTenantLocalId(tenantId: number, localId: number) {
           orden: true,
           cuenta: true,
           descripcion: true,
-          debeHaber: true,           // "DEBE" | "HABER"
-          principalDetalle: true,    // "P" | "D"
+          debeHaber: true,
+          principalDetalle: true,
           nivel: true,
-          tipo: true,                // "BALANCE_GENERAL" | "ESTADO_RESULTADOS" | "CAPITAL"
-          naturaleza: true,          // ACTIVO | PASIVO | ... | OTROS_INGRESOS | OTROS_GASTOS | REVISAR
+          tipo: true,
+          naturaleza: true,
           lockCuenta: true,
           lockDescripcion: true,
           lockDebeHaber: true,
@@ -56,7 +55,7 @@ async function getNomByTenantLocalId(tenantId: number, localId: number) {
 // GET /api/nomenclaturas/:id   (id = localId)
 export async function GET(
   req: Request,
-  ctx: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const auth = await requireSessionAndTenant(req);
@@ -65,7 +64,8 @@ export async function GET(
     }
     const { tenant } = auth;
 
-    const { id } = ctx.params;
+    // 👇 aquí está el fix
+    const { id } = await params;
     const localId = Number(id);
     if (!localId || Number.isNaN(localId)) {
       return NextResponse.json({ ok: false, error: "BAD_ID" }, { status: 400 });
@@ -84,7 +84,7 @@ export async function GET(
 // PUT /api/nomenclaturas/:id   (id = localId)
 export async function PUT(
   req: Request,
-  ctx: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const auth = await requireSessionAndTenant(req);
@@ -93,7 +93,8 @@ export async function PUT(
     }
     const { tenant } = auth;
 
-    const { id } = ctx.params;
+    // 👇 mismo fix
+    const { id } = await params;
     const localId = Number(id);
     if (!localId || Number.isNaN(localId)) {
       return NextResponse.json({ ok: false, error: "BAD_ID" }, { status: 400 });
@@ -114,7 +115,7 @@ export async function PUT(
     if (!nom) return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
 
     const normalize = (c: any, i: number) => ({
-      nomenclaturaId: nom.id, // usa id global para la relación
+      nomenclaturaId: nom.id,
       orden: Number(c?.orden ?? i + 1),
       cuenta: String(c?.cuenta ?? ""),
       descripcion: String(c?.descripcion ?? ""),
@@ -134,7 +135,9 @@ export async function PUT(
       lockDelete:
         typeof c?.lockDelete === "boolean"
           ? c.lockDelete
-          : (c?.isPlantilla ? true : !!c?.lockRowActions),
+          : c?.isPlantilla
+          ? true
+          : !!c?.lockRowActions,
       isPlantilla: !!c?.isPlantilla,
     });
 
@@ -150,7 +153,6 @@ export async function PUT(
       await tx.nomenclaturaCuenta.deleteMany({ where: { nomenclaturaId: nom.id } });
 
       if (Array.isArray(cuentas) && cuentas.length > 0) {
-        // createMany ignora valores undefined; ya normalizamos todo
         await tx.nomenclaturaCuenta.createMany({ data: cuentas.map(normalize) });
       }
     });
@@ -165,7 +167,7 @@ export async function PUT(
 // DELETE /api/nomenclaturas/:id   (id = localId)
 export async function DELETE(
   req: Request,
-  ctx: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const auth = await requireSessionAndTenant(req);
@@ -174,7 +176,8 @@ export async function DELETE(
     }
     const { tenant } = auth;
 
-    const { id } = ctx.params;
+    // 👇 mismo fix
+    const { id } = await params;
     const localId = Number(id);
     if (!localId || Number.isNaN(localId)) {
       return NextResponse.json({ ok: false, error: "BAD_ID" }, { status: 400 });

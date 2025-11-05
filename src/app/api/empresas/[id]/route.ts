@@ -9,17 +9,30 @@ function parseDMY(d?: string | null): Date | null {
   if (!d) return null;
   const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(d.trim());
   if (!m) return null;
-  const dd = Number(m[1]), mm = Number(m[2]) - 1, yyyy = Number(m[3]);
+  const dd = Number(m[1]),
+    mm = Number(m[2]) - 1,
+    yyyy = Number(m[3]);
   const dt = new Date(yyyy, mm, dd);
-  if (dt.getFullYear() !== yyyy || dt.getMonth() !== mm || dt.getDate() !== dd) return null;
+  if (dt.getFullYear() !== yyyy || dt.getMonth() !== mm || dt.getDate() !== dd)
+    return null;
   return dt;
 }
 
-export async function GET(_req: Request, ctx: { params: { id: string } }) {
+// GET /api/empresas/:id
+export async function GET(
+  _req: Request,
+  ctx: { params: Promise<{ id: string }> }
+) {
   try {
-    const empresaId = Number(ctx.params.id);
+    // 👇 ESTE es el cambio
+    const { id } = await ctx.params;
+    const empresaId = Number(id);
+
     if (!empresaId || Number.isNaN(empresaId)) {
-      return NextResponse.json({ ok: false, error: "BAD_ID" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "BAD_ID" },
+        { status: 400 }
+      );
     }
 
     const e = await prisma.empresa.findUnique({
@@ -41,23 +54,23 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
       },
     });
 
-    if (!e) return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
+    if (!e)
+      return NextResponse.json(
+        { ok: false, error: "NOT_FOUND" },
+        { status: 404 }
+      );
 
-    // Armar respuesta en el "shape" que usa tu UI
     const data = {
       id: e.id,
       tenant: e.tenant,
       nombre: e.nombre,
       nit: e.nit,
       sectorEconomico: e.sectorEconomico,
-      razonSocial: e.razonSocial, // "Individual" | "Juridico"
+      razonSocial: e.razonSocial,
       avatarUrl: e.avatarUrl,
-
-      // Los JSON se devuelven tal cual; tu InfoTab ya los sabe consumir
       infoIndividual: e.infoIndividual ?? undefined,
       infoJuridico: e.infoJuridico ?? undefined,
 
-      // Bloque Afiliaciones
       afiliaciones: e.afiliaciones
         ? {
             regimenIvaId: e.afiliaciones.regimenIvaId ?? undefined,
@@ -67,16 +80,19 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
               id: String(o.id),
               impuesto: o.impuesto || "Otro",
               codigoFormulario: o.codigoFormulario || "",
-              // se devuelve en ISO; tu UI lo puede convertir a dmy si lo necesitas
               fechaPresentacion: o.fechaPresentacion
                 ? o.fechaPresentacion.toISOString().slice(0, 10)
                 : "",
               nombreObligacion: o.nombreObligacion || "",
             })),
           }
-        : { regimenIvaId: undefined, regimenIsrId: undefined, nomenclaturaId: undefined, obligaciones: [] },
+        : {
+            regimenIvaId: undefined,
+            regimenIsrId: undefined,
+            nomenclaturaId: undefined,
+            obligaciones: [],
+          },
 
-      // Bloque Gestiones
       gestiones: e.gestiones
         ? {
             folios: (e.gestiones.folios || []).map((f) => ({
@@ -84,13 +100,14 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
               libro: f.libro,
               disponibles: Number(f.disponibles ?? 0),
               usados: Number(f.usados ?? 0),
-              ultimaFecha: f.ultimaFecha ? f.ultimaFecha.toISOString().slice(0, 10) : null,
+              ultimaFecha: f.ultimaFecha
+                ? f.ultimaFecha.toISOString().slice(0, 10)
+                : null,
             })),
             correlativos: e.gestiones.correlativos ?? [],
           }
         : { folios: [], correlativos: [] },
 
-      // Cuentas bancarias
       cuentasBancarias: (e.cuentasBancarias || []).map((c) => ({
         id: c.id,
         numero: c.numero,
@@ -108,20 +125,31 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
     return NextResponse.json({ ok: true, data });
   } catch (err) {
     console.error("GET empresa error:", err);
-    return NextResponse.json({ ok: false, error: "SERVER_ERROR" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "SERVER_ERROR" },
+      { status: 500 }
+    );
   }
 }
 
-export async function PUT(req: Request, ctx: { params: { id: string } }) {
+// PUT /api/empresas/:id
+export async function PUT(
+  req: Request,
+  ctx: { params: Promise<{ id: string }> }
+) {
   try {
-    const empresaId = Number(ctx.params.id);
+    const { id } = await ctx.params; // 👈 mismo fix
+    const empresaId = Number(id);
+
     if (!empresaId || Number.isNaN(empresaId)) {
-      return NextResponse.json({ ok: false, error: "BAD_ID" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "BAD_ID" },
+        { status: 400 }
+      );
     }
 
     const body = await req.json();
 
-    // Desempaquetar el payload tal como lo arma tu UI
     const {
       tenant,
       nombre,
@@ -129,18 +157,19 @@ export async function PUT(req: Request, ctx: { params: { id: string } }) {
       sectorEconomico,
       razonSocial,
       avatarUrl,
-      info, // {tipo:"Individual"| "Juridico", ...campos}
-      afiliaciones, // {regimenIvaId, regimenIsrId, nomenclaturaId, obligaciones[]}
-      gestiones, // {folios[], correlativos[]}
-      cuentasBancarias, // []
+      info,
+      afiliaciones,
+      gestiones,
+      cuentasBancarias,
     } = body || {};
 
-    // Validaciones mínimas
     if (!nombre || !nit || !sectorEconomico || !razonSocial) {
-      return NextResponse.json({ ok: false, error: "MISSING_FIELDS" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "MISSING_FIELDS" },
+        { status: 400 }
+      );
     }
 
-    // Traer existente
     const exists = await prisma.empresa.findUnique({
       where: { id: empresaId },
       include: {
@@ -149,9 +178,12 @@ export async function PUT(req: Request, ctx: { params: { id: string } }) {
         cuentasBancarias: true,
       },
     });
-    if (!exists) return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
+    if (!exists)
+      return NextResponse.json(
+        { ok: false, error: "NOT_FOUND" },
+        { status: 404 }
+      );
 
-    // Armar parches base
     const patchEmpresa: any = {
       tenant: tenant ?? exists.tenant,
       nombre,
@@ -161,7 +193,6 @@ export async function PUT(req: Request, ctx: { params: { id: string } }) {
       avatarUrl: avatarUrl ?? exists.avatarUrl,
     };
 
-    // Mapear info -> infoIndividual / infoJuridico
     if (info?.tipo === "Individual") {
       patchEmpresa.infoIndividual = info;
       patchEmpresa.infoJuridico = null;
@@ -170,15 +201,13 @@ export async function PUT(req: Request, ctx: { params: { id: string } }) {
       patchEmpresa.infoIndividual = null;
     }
 
-    // Transacción para mantener coherencia
     const updated = await prisma.$transaction(async (tx) => {
-      // 1) Empresa
       const upEmpresa = await tx.empresa.update({
         where: { id: empresaId },
         data: patchEmpresa,
       });
 
-      // 2) Afiliaciones (crear si no existe; actualizar si sí)
+      // --- Afiliaciones
       let afiliId = exists.afiliacionesId;
       if (!afiliId) {
         if (afiliaciones) {
@@ -192,33 +221,26 @@ export async function PUT(req: Request, ctx: { params: { id: string } }) {
           });
           afiliId = createdA.id;
         }
-      } else {
-        if (afiliaciones) {
-          await tx.afiliaciones.update({
-            where: { id: afiliId },
-            data: {
-              regimenIvaId: afiliaciones.regimenIvaId || null,
-              regimenIsrId: afiliaciones.regimenIsrId || null,
-              nomenclaturaId: afiliaciones.nomenclaturaId || null,
-            },
-          });
-        }
+      } else if (afiliaciones) {
+        await tx.afiliaciones.update({
+          where: { id: afiliId },
+          data: {
+            regimenIvaId: afiliaciones.regimenIvaId || null,
+            regimenIsrId: afiliaciones.regimenIsrId || null,
+            nomenclaturaId: afiliaciones.nomenclaturaId || null,
+          },
+        });
       }
 
-      // 2.1) Obligaciones: simplificamos → borramos y recreamos
       if (afiliId) {
         await tx.obligacion.deleteMany({ where: { afiliacionesId: afiliId } });
-
         const toCreate = (afiliaciones?.obligaciones || []).map((o: any) => ({
           afiliacionesId: afiliId!,
           impuesto: String(o.impuesto || "Otro"),
           codigoFormulario: o.codigoFormulario || null,
-          fechaPresentacion:
-            typeof o.fechaPresentacion === "string"
-              ? parseDMY(o.fechaPresentacion) || null
-              : o.fechaPresentacion
-              ? new Date(o.fechaPresentacion)
-              : null,
+          fechaPresentacion: o.fechaPresentacion
+            ? parseDMY(o.fechaPresentacion) || new Date(o.fechaPresentacion)
+            : null,
           nombreObligacion: o.nombreObligacion || null,
         }));
         if (toCreate.length) {
@@ -226,7 +248,7 @@ export async function PUT(req: Request, ctx: { params: { id: string } }) {
         }
       }
 
-      // 3) Gestiones/Folios: igual, borramos y recreamos
+      // --- Gestiones
       if (!exists.gestionesId) {
         if (gestiones) {
           const g = await tx.gestiones.create({
@@ -235,24 +257,21 @@ export async function PUT(req: Request, ctx: { params: { id: string } }) {
               correlativos: gestiones.correlativos ?? [],
             },
           });
-          // crear folios
           const folios = (gestiones.folios || []).map((f: any) => ({
             gestionesId: g.id,
             libro: String(f.libro),
             disponibles: Number(f.disponibles || 0),
             usados: Number(f.usados || 0),
-            ultimaFecha:
-              typeof f.ultimaFecha === "string"
-                ? parseDMY(f.ultimaFecha) || (f.ultimaFecha ? new Date(f.ultimaFecha) : null)
-                : f.ultimaFecha
-                ? new Date(f.ultimaFecha)
-                : null,
+            ultimaFecha: f.ultimaFecha
+              ? parseDMY(f.ultimaFecha) || new Date(f.ultimaFecha)
+              : null,
           }));
           if (folios.length) await tx.folioLibro.createMany({ data: folios });
         }
       } else {
-        // update correlativos + folios
-        await tx.folioLibro.deleteMany({ where: { gestionesId: exists.gestionesId } });
+        await tx.folioLibro.deleteMany({
+          where: { gestionesId: exists.gestionesId },
+        });
         if (gestiones) {
           await tx.gestiones.update({
             where: { id: exists.gestionesId },
@@ -263,18 +282,15 @@ export async function PUT(req: Request, ctx: { params: { id: string } }) {
             libro: String(f.libro),
             disponibles: Number(f.disponibles || 0),
             usados: Number(f.usados || 0),
-            ultimaFecha:
-              typeof f.ultimaFecha === "string"
-                ? parseDMY(f.ultimaFecha) || (f.ultimaFecha ? new Date(f.ultimaFecha) : null)
-                : f.ultimaFecha
-                ? new Date(f.ultimaFecha)
-                : null,
+            ultimaFecha: f.ultimaFecha
+              ? parseDMY(f.ultimaFecha) || new Date(f.ultimaFecha)
+              : null,
           }));
           if (folios.length) await tx.folioLibro.createMany({ data: folios });
         }
       }
 
-      // 4) Cuentas bancarias: borrar y recrear
+      // --- Cuentas bancarias
       await tx.cuentaBancaria.deleteMany({ where: { empresaId } });
       const cuentas = (cuentasBancarias || []).map((c: any) => ({
         empresaId,
@@ -293,6 +309,9 @@ export async function PUT(req: Request, ctx: { params: { id: string } }) {
     return NextResponse.json({ ok: true, id: updated.id });
   } catch (err) {
     console.error("PUT empresa error:", err);
-    return NextResponse.json({ ok: false, error: "SERVER_ERROR" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "SERVER_ERROR" },
+      { status: 500 }
+    );
   }
 }
